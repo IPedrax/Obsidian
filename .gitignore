@@ -1,0 +1,12 @@
+# Pre-1.0 config location. Contains a local vault path (and therefore a
+# username) -- must never be committed. Current config lives outside the
+# plugin at ~/.claude/obsidian-memory.json.
+skills/obsidian-memory/vault-path.txt
+
+# Claude Code plugin cache marker
+.in_use/
+
+# OS noise
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "obsidian-memory",
+  "owner": {
+    "name": "IPedrax",
+    "email": "pedragamesoficial@gmail.com"
+  },
+  "metadata": {
+    "description": "Claude's persistent memory, routed into an Obsidian vault and shared across every chat and project."
+  },
+  "plugins": [
+    {
+      "name": "obsidian-memory",
+      "source": "./",
+      "category": "productivity",
+      "description": "Replaces each project's Claude memory directory with an NTFS junction into one Obsidian vault folder, so memory writes land in the vault with no sync pipeline and every project shares one pool and one index. Windows only.",
+      "skills": [
+        "./skills/obsidian-memory"
+      ]
+    }
+  ]
+}

@@ -1,32 +1,37 @@
 # obsidian-memory
 
-Claude Code's persistent memory, routed into an Obsidian vault — browsable, linkable, queryable, and shared across every chat and project instead of siloed one folder per project.
+An upgrade to Claude Code's persistent memory: Claude creates and manages an Obsidian vault, and you can open it and read everything it remembers.
 
 **No sync. No export. No MCP server. No background process.**
 
 ## The idea
 
-Claude Code already writes memory as Obsidian-shaped markdown — YAML frontmatter, one fact per file, `[[wikilinks]]`, a `MEMORY.md` index. It just stores it at `~/.claude/projects/<slug>/memory/`, a separate folder per project, where nothing but Claude can read it.
+Claude Code already writes memory as Obsidian-shaped markdown — YAML frontmatter, one fact per file, `[[wikilinks]]`, a `MEMORY.md` index. It just hides it in `~/.claude/projects/<slug>/memory/`, a separate folder per project, where nothing but Claude can read it.
 
-This plugin replaces each of those folders with an **NTFS directory junction** pointing at one folder inside your vault:
+This plugin creates one vault in Claude's own directory and points every project's memory folder at it with an **NTFS directory junction**:
 
 ```
-~/.claude/projects/D--Portfolio/memory  ──┐
-~/.claude/projects/D--OSINT/memory     ──┼──> <vault>/Memory/
-~/.claude/projects/D--Council/memory   ──┘        MEMORY.md      index, grouped by project
-                                                  Memory.base    queryable views
-                                                  *.md           one fact per file
+~/.claude/memory-vault/            <- a real Obsidian vault, registered in Obsidian
+  .obsidian/                       <- config; stays outside the junction
+  README.md
+  Memory/                          <- the pool
+    MEMORY.md                      <- index, grouped by project
+    Memory.base                    <- queryable views
+    *.md                           <- one fact per file
+
+~/.claude/projects/D--Foo/memory  ──┐
+~/.claude/projects/D--Bar/memory  ──┴──> ~/.claude/memory-vault/Memory/
 ```
 
-A junction is a redirect at the filesystem layer. When anything opens `...\D--Foo\memory\x.md`, the OS serves `<vault>\Memory\x.md`. Claude never knows, and no code path changes.
+A junction is a redirect at the filesystem layer. When anything opens `...\D--Foo\memory\x.md`, the OS serves `...\memory-vault\Memory\x.md`. Claude never knows, and no code path changes.
 
-Point every project at the same target and they share one pool and one index — so **memory persists across chats and across projects** as a side effect of the redirect, not as a feature anyone had to build. No hook, no server, no daemon.
+Point every project at the same target and they share one pool and one index — so **memory persists across chats and across projects** as a side effect of the redirect, not as a feature anyone had to build.
 
 ## Requirements
 
 - **Windows.** Junctions are NTFS. A macOS/Linux port needs `ln -s` and a shell rewrite — not done.
-- Windows PowerShell 5.1 (ships with Windows). No admin rights needed; directory junctions do not require elevation.
-- Obsidian, with [Bases](https://obsidian.md/help/bases) enabled if you want the prebuilt query views.
+- Windows PowerShell 5.1 (ships with Windows). No admin rights: directory junctions do not require elevation.
+- Obsidian, with [Bases](https://obsidian.md/help/bases) for the prebuilt query views.
 
 ## Install
 
@@ -35,53 +40,48 @@ Point every project at the same target and they share one pool and one index —
 /plugin install obsidian-memory
 ```
 
-Or drop `skills/obsidian-memory/` into `~/.claude/skills/` to use it as a personal skill.
+Or drop `skills/obsidian-memory/` into `~/.claude/skills/` as a personal skill.
 
 ## Setup
 
-`$S` is the skill directory. Under a plugin install that is `~/.claude/plugins/cache/obsidian-memory/obsidian-memory/<version>/skills/obsidian-memory`.
+One command, no arguments:
 
 ```powershell
-# 1. register your vault, create Memory/ and Memory.base
-& "$S\memory-vault.ps1" init -Vault "C:\path\to\your\vault"
-
-# 2. look before you leap
-& "$S\memory-vault.ps1" status
-
-# 3. copy existing memories into the pool (additive: nothing moved, nothing deleted)
-& "$S\memory-vault.ps1" adopt -All -DryRun
-& "$S\memory-vault.ps1" adopt -All
-
-# 4. swap the directories for junctions (backs up first)
-& "$S\memory-vault.ps1" link -All -DryRun
-& "$S\memory-vault.ps1" link -All
+& "$S\memory-vault.ps1" setup
 ```
 
-Use `-Project D--Foo` instead of `-All` to scope to one project. New projects need `link -Project <slug>` once.
+It creates the vault, registers it in Obsidian's vault switcher, copies existing per-project memories into the pool, junctions the projects, and installs a SessionStart hook so new projects join automatically.
+
+Then restart Obsidian and open **`memory-vault`** from the vault list.
+
+Flags: `-NoLink` (set up without junctioning), `-NoHook` (skip the hook), `-Vault <path>` (use an existing vault instead of creating one), `-DryRun` on `adopt`/`link`.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `status` | What is linked, what is still local, how many memories are pooled |
-| `init -Vault <path>` | Register the vault, create `Memory/` and `Memory.base` |
+| `setup` | Everything below, in order. The only command most people need |
+| `status` | Vault, pool size, hook state, what is linked vs still local |
+| `init` | Create + register the vault only |
 | `adopt -All` | Copy existing per-project memories into the pool, stamping `project:` |
 | `link -All` | Back up each `memory/` dir, replace it with a junction |
+| `autolink` | Adopt + link the current project only. What the hook runs |
+| `hook` / `hook -Remove` | Install or uninstall the SessionStart hook |
 | `index` | Rebuild `MEMORY.md` from the frontmatter actually on disk |
-| `unlink -Project <slug>` | Remove one junction. Never touches the pool |
-
-`-DryRun` works on `adopt` and `link`.
+| `unlink -Project <slug>` | Remove one junction and stop auto-linking it |
 
 ## Safety
 
 The destructive step is guarded by the additive one:
 
-- `link` **refuses** any project whose files are not already in the pool. Running the steps out of order cannot lose data.
-- `link` moves the original directory to `~/.claude/memory-backups/` before creating the junction.
+- `link` **refuses** any project whose files are not already in the pool. Running steps out of order cannot lose data.
+- `link` moves the original directory to `~/.claude/memory-backups/` before junctioning.
 - `adopt` is idempotent — running it twice adopts nothing the second time.
 - Filename collisions across projects are renamed `Project__file.md`, never overwritten.
 - A file with no frontmatter gets one synthesized rather than being skipped.
-- `unlink` deletes the junction, not its target. The pool is untouched.
+- `unlink` deletes the junction, not its target, and records the choice so the hook will not undo it.
+- Registering the vault **merges** into Obsidian's vault list and never sets `open: true`, so it cannot hijack which vault opens or drop vaults you already had.
+- Installing the hook **merges** into `settings.json` and preserves every existing key.
 
 ## Memory format
 
@@ -103,27 +103,20 @@ Keep responses short and lead with the conclusion.
 
 `type` is one of `user`, `feedback`, `project`, `reference` — kept **flat**, because Obsidian Bases can only filter flat properties.
 
-`project` decides reach. `global` applies everywhere; a project name applies only there. Since the pool is shared, memories from other projects will surface — the skill instructs Claude to check `project:` and treat non-matching ones as context rather than instruction. That is a prompt-level guardrail, not isolation. If you need hard separation, junction each project to `Memory/Projects/<name>` instead; the `project:` field already carries what that split needs.
-
-## Querying
-
-| Want | Do |
-|---|---|
-| Browse everything | `Memory/MEMORY.md`, grouped by project |
-| Filter and sort | `Memory/Memory.base` — All, Global, feedback, unscoped |
-| Full text | Obsidian search: `path:Memory "docker"` |
-| What links to what | Open any memory note; backlinks pane and local graph |
+`project` decides reach. `global` applies everywhere; a project name applies only there. Since the pool is shared, memories from other projects surface — the skill instructs Claude to check `project:` and treat non-matching ones as context, not instruction. That is a prompt-level guardrail, not isolation. For hard separation, junction each project to `Memory/Projects/<name>` instead; the `project:` field already carries what that split needs.
 
 ## Known limits
 
 - **One shared pool.** Every project loads the whole index. Fine at dozens of memories; reconsider past a few hundred.
-- **Depends on an undocumented path.** `~/.claude/projects/<slug>/memory/` is Claude Code's internal layout, not a public contract. If it changes, junctions silently stop routing and memory quietly goes back to being siloed. `status` asserts the path and warns loudly — check it after a Claude Code update.
+- **Depends on an undocumented path.** `~/.claude/projects/<slug>/memory/` is Claude Code's internal layout, not a public contract. If it changes, junctions silently stop routing and memory quietly goes back to being siloed. `status` asserts the path and warns loudly — check after a Claude Code update.
+- **The hook costs a subprocess per session start** and a footprint in `settings.json`. `hook -Remove` reverses it.
 - Junctions are machine-local. Re-run `link -All` after moving to a new machine.
-- Vault on cloud sync: a memory write racing a sync conflict can collide. Rare; `~/.claude/memory-backups/` is the recovery path.
 
 ## Config
 
-Vault path lives at `~/.claude/obsidian-memory.json`, deliberately **outside** the plugin directory so a plugin update cannot wipe it and no local path is ever committed. A pre-1.0 `vault-path.txt` inside the skill folder is migrated automatically and deleted.
+Vault path and the auto-link exclusion list live at `~/.claude/obsidian-memory.json`, deliberately **outside** the plugin directory so an update cannot wipe them and no local path is ever committed. A pre-1.0 `vault-path.txt` inside the skill folder is migrated automatically and deleted.
+
+The hook points at a stable launcher in `~/.claude/obsidian-memory/`, not the versioned plugin path, so plugin updates do not break it.
 
 ## License
 

@@ -1,58 +1,59 @@
 ---
 name: obsidian-memory
-description: "Route Claude's persistent memory into an Obsidian vault so it is browsable, linkable and queryable, and shared across every chat and project instead of siloed per-project. Windows only (uses NTFS directory junctions). Use when the user asks to save memory to Obsidian, wants memory that persists across chats/projects/sessions, wants to see or query what Claude remembers, says memory is scattered or siloed, asks to remember something globally rather than for one project, or asks to repair/rebuild the memory index. Triggers: 'save memory to obsidian', 'memory vault', 'remember this everywhere', 'persistent memory across projects', 'what do you remember', 'rebuild memory index'."
+description: "Upgrade Claude's persistent memory into an Obsidian vault that Claude creates and manages, and that the user can open and read. Memory becomes browsable, linkable and queryable, and is shared across every chat and project instead of siloed per-project. Windows only (uses NTFS directory junctions). Use when the user asks to save memory to Obsidian, wants memory that persists across chats/projects/sessions, wants to see or query what Claude remembers, says memory is scattered or siloed, asks to remember something globally rather than for one project, or asks to repair/rebuild the memory index. Triggers: 'save memory to obsidian', 'memory vault', 'remember this everywhere', 'persistent memory across projects', 'what do you remember', 'rebuild memory index'."
 ---
 
 # obsidian-memory
 
-Claude's built-in memory already writes Obsidian-shaped markdown: YAML frontmatter, one fact per file, `[[wikilinks]]`, a `MEMORY.md` index. The only problems are that it lives in `~/.claude/projects/<slug>/memory/`, one silo per project, and nothing can read it but Claude.
+An upgrade to Claude's built-in memory, not a replacement. The built-in system already writes Obsidian-shaped markdown — YAML frontmatter, one fact per file, `[[wikilinks]]`, a `MEMORY.md` index. It just hides it in `~/.claude/projects/<slug>/memory/`, one silo per project, where nothing but Claude can read it.
 
-**This skill does not sync, export or copy anything at runtime.** It replaces each project's `memory/` directory with an NTFS **directory junction** pointing at one folder inside an Obsidian vault. Normal memory writes then land in the vault directly. There is no pipeline to run, nothing to schedule, and nothing that can drift.
-
-Because every project's `memory/` resolves to the same folder, every project loads the same `MEMORY.md`. Cross-project persistent memory falls out of the junction for free — no hook, no MCP server, no plugin.
+This skill **creates one Obsidian vault inside Claude's own directory** and points every project's memory dir at it with an NTFS **directory junction**. Normal memory writes then land in the vault. Nothing syncs at runtime and nothing can drift.
 
 ```
-~/.claude/projects/D--Portfolio/memory  ──┐
-~/.claude/projects/D--OSINT/memory     ──┼──> <vault>/Memory/
-~/.claude/projects/D--Council/memory   ──┘        MEMORY.md      (index, grouped by project)
-                                                  Memory.base    (queryable views)
-                                                  *.md           (one fact per file)
+~/.claude/memory-vault/            <- a real Obsidian vault, registered in Obsidian
+  .obsidian/                       <- config; stays outside the junction
+  README.md
+  Memory/                          <- the pool; every project junctions here
+    MEMORY.md                      <- index, grouped by project
+    Memory.base                    <- queryable views
+    *.md                           <- one fact per file
+
+~/.claude/projects/D--Foo/memory  ──┐
+~/.claude/projects/D--Bar/memory  ──┴──> ~/.claude/memory-vault/Memory/
 ```
 
-**Windows only.** Junctions are NTFS. A macOS/Linux port needs `ln -s` and a shell rewrite; it is not done.
+Every project's `memory/` resolves to the same folder, so every project loads the same `MEMORY.md`. Cross-project memory falls out of the junction — no MCP server, no sync process.
+
+**Windows only.** Junctions are NTFS. A macOS/Linux port needs `ln -s` and a shell rewrite; not done.
 
 ## Setup
 
-`$S` below is this skill's directory. Vault path is stored once in `~/.claude/obsidian-memory.json` — outside the plugin, so an update cannot wipe it.
+One command. No arguments, no vault to pick, nothing to create by hand.
 
 ```powershell
-# 1. register the vault and create Memory/ + Memory.base
-& "$S\memory-vault.ps1" init -Vault "C:\path\to\vault"
-
-# 2. see what exists before touching anything
-& "$S\memory-vault.ps1" status
-
-# 3. copy existing memories into the pool (additive; nothing is moved or deleted)
-& "$S\memory-vault.ps1" adopt -All -DryRun
-& "$S\memory-vault.ps1" adopt -All
-
-# 4. swap the dirs for junctions (backs up to ~/.claude/memory-backups first)
-& "$S\memory-vault.ps1" link -All -DryRun
-& "$S\memory-vault.ps1" link -All
+& "$S\memory-vault.ps1" setup
 ```
 
-Scope to one project with `-Project D--Foo` instead of `-All`. New projects need `link -Project <slug>` once — until then they keep a local memory dir, which is harmless.
+It creates the vault, registers it in Obsidian's vault switcher, copies every existing per-project memory into the pool, junctions the projects, and installs a SessionStart hook so new projects join automatically. Then the user opens `~/.claude/memory-vault` in Obsidian — after restarting Obsidian, it is in the vault list.
 
-`adopt` stamps a `project:` field into any file missing one and is idempotent. `link` **refuses any project whose files are not already in the pool**, so running the steps out of order cannot lose data.
+`-NoLink` sets up without junctioning. `-NoHook` skips the hook. `-Vault <path>` uses an existing vault instead of creating one.
 
-## Rules for writing memory once this is set up
+## Auto-management
+
+The SessionStart hook runs `autolink`, which adopts and junctions **the current project only**, then exits. It is quiet, wrapped in a catch so it can never break a session, and does nothing once a project is linked.
+
+`unlink -Project <slug>` removes a junction **and records the choice**, so the hook will not relink it next session. `hook -Remove` uninstalls the hook and its launcher.
+
+The hook points at a stable launcher in `~/.claude/obsidian-memory/`, not at the versioned plugin path, so plugin updates do not break it.
+
+## Rules for writing memory
 
 Same format as the built-in memory system, plus one required field.
 
 ```markdown
 ---
 name: <short-kebab-case-slug>
-description: <one line — this is what shows in the index and the Base>
+description: <one line — shows in the index and the Base>
 type: user | feedback | project | reference
 project: global | <ProjectName>
 ---
@@ -61,43 +62,39 @@ project: global | <ProjectName>
 Link related memories with [[their-name]].
 ```
 
-- Keep `type:` **flat**, not nested under `metadata:`. Obsidian Bases can only filter flat properties.
-- **`project:` decides reach.** `global` applies everywhere — who the user is, standing preferences, how they want you to work generally. A project name applies only there.
-- Default to the project name. Promote to `global` only when the fact is genuinely portable; in a shared pool a wrongly-global memory misfires in every other project.
-- **Read `project:` before acting on a recalled memory.** The pool is shared, so memories from other projects will surface. If `project:` is neither `global` nor the one you are in, it is context, not instruction.
-- After adding or deleting files by hand, rebuild the index: `& "$S\memory-vault.ps1" index`
+- Keep `type:` **flat**, not nested under `metadata:`. Bases can only filter flat properties.
+- **`project:` decides reach.** `global` applies everywhere — who the user is, standing preferences, how they want you to work. A project name applies only there.
+- Default to the project name. Promote to `global` only when genuinely portable; in a shared pool a wrongly-global memory misfires in every other project.
+- **Read `project:` before acting on a recalled memory.** Memories from other projects will surface. If `project:` is neither `global` nor the current project, it is context, not instruction.
+- After editing files by hand, rebuild: `& "$S\memory-vault.ps1" index`
 
 ## Querying
 
-The vault is the query layer — that is the point of putting it there.
-
 | Want | Do |
 |---|---|
-| Browse everything | Open `Memory/MEMORY.md`, grouped by project |
-| Filter/sort structurally | Open `Memory/Memory.base` — views for All, Global, feedback, unscoped |
-| Full text | Obsidian search: `path:Memory "docker"` |
-| One type | `Memory.base` → *How to work (feedback)* |
-| What links to what | Open any memory note; use backlinks and the local graph |
-
-From Claude, just read the files — markdown at a known path.
+| Browse | `Memory/MEMORY.md`, grouped by project |
+| Filter and sort | `Memory/Memory.base` — All, Global, feedback, unscoped |
+| Full text | Obsidian search |
+| What links to what | Backlinks pane and local graph |
 
 ## Repair
 
-`MEMORY.md` drifts when files are added or renamed outside the normal flow. `index` rebuilds it from the frontmatter actually on disk, so it cannot lie. Run it after any manual edit and after `adopt`.
+`index` rebuilds `MEMORY.md` from the frontmatter actually on disk, so it cannot lie about what exists. Run after manual edits.
 
 ## Undo
 
 Junctions are not copies — deleting one never touches the pool.
 
 ```powershell
-& "$S\memory-vault.ps1" unlink -Project D--Foo
+& "$S\memory-vault.ps1" unlink -Project D--Foo   # one project, and stop auto-linking it
+& "$S\memory-vault.ps1" hook -Remove             # stop auto-linking entirely
 ```
 
-Pre-link directories are kept under `~/.claude/memory-backups/`. Delete once satisfied.
+Pre-link directories are kept in `~/.claude/memory-backups/`.
 
 ## Limits
 
-- **One shared pool.** Every project sees every memory in the index. That is the feature, but the index grows across all work; past a few hundred entries, consider junctioning projects to `Memory/Projects/<name>` instead. The `project:` field already carries the scoping that split needs.
-- **Depends on an undocumented path.** `~/.claude/projects/<slug>/memory/` is Claude Code's layout, not a public contract. If it changes, junctions silently stop routing. `status` asserts the path and warns loudly if it is gone — check it after a Claude Code update.
-- Junctions are Windows-local and do not survive being copied to another machine. Re-run `link -All` after a migration.
-- If the vault is on cloud sync, a memory write and a sync conflict can collide. Rare; `~/.claude/memory-backups/` is the recovery path.
+- **One shared pool.** Every project loads the whole index. Fine at dozens; past a few hundred, consider junctioning to `Memory/Projects/<name>` — the `project:` field already carries that split.
+- **Depends on an undocumented path.** `~/.claude/projects/<slug>/memory/` is Claude Code's layout, not a public contract. If it changes, junctions silently stop routing. `status` asserts it and warns; check after a Claude Code update.
+- **The hook adds a subprocess per session start.** Small, but it is a footprint in `settings.json`. `hook -Remove` reverses it.
+- Junctions are machine-local. Re-run `link -All` after moving machines.

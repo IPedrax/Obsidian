@@ -1,7 +1,7 @@
 {
   "name": "obsidian-memory",
-  "version": "1.0.0",
-  "description": "Route Claude's persistent memory into an Obsidian vault with NTFS directory junctions. Browsable, linkable, queryable, and shared across every chat and project instead of siloed per-project. Windows only.",
+  "version": "1.1.0",
+  "description": "Upgrade Claude's persistent memory into an Obsidian vault it creates and manages, and you can open. Zero-config setup, browsable and queryable, shared across every chat and project instead of siloed per-project. Windows only.",
   "author": {
     "name": "IPedrax",
     "email": "pedragamesoficial@gmail.com"

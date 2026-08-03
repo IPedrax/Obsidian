@@ -50,11 +50,17 @@ One command, no arguments:
 & "$S\memory-vault.ps1" setup
 ```
 
-It creates the vault, registers it in Obsidian's vault switcher, copies existing per-project memories into the pool, junctions the projects, and installs a SessionStart hook so new projects join automatically.
+It creates the vault, registers it in Obsidian's vault switcher, copies existing per-project memories into the pool, junctions the projects, installs a SessionStart hook so new projects join automatically, and writes the memory rules into `~/.claude/CLAUDE.md`.
 
 Then restart Obsidian and open **`memory-vault`** from the vault list.
 
-Flags: `-NoLink` (set up without junctioning), `-NoHook` (skip the hook), `-Vault <path>` (use an existing vault instead of creating one), `-DryRun` on `adopt`/`link`.
+Flags: `-NoLink` (set up without junctioning), `-NoHook` (skip the hook), `-NoRules` (skip the CLAUDE.md block), `-Vault <path>` (use an existing vault instead of creating one), `-DryRun` on `adopt`/`link`.
+
+### Why the rules go in CLAUDE.md
+
+A skill only loads when it triggers. If Claude saves a memory in a session where this skill never fired, the file has no `project:` and lands as `unscoped` — and a shared pool that cannot tell what applies where stops being trustworthy. `CLAUDE.md` loads every session, so the non-negotiable part of the contract lives there.
+
+The block is delimited by `<!-- obsidian-memory:begin -->` / `<!-- obsidian-memory:end -->`. Writing it is idempotent — re-running replaces the block instead of duplicating it — and everything else in your `CLAUDE.md` is preserved. `rules -Remove` strips it and leaves the rest byte-for-byte.
 
 ## Commands
 
@@ -67,6 +73,7 @@ Flags: `-NoLink` (set up without junctioning), `-NoHook` (skip the hook), `-Vaul
 | `link -All` | Back up each `memory/` dir, replace it with a junction |
 | `autolink` | Adopt + link the current project only. What the hook runs |
 | `hook` / `hook -Remove` | Install or uninstall the SessionStart hook |
+| `rules` / `rules -Remove` | Write the always-on memory rules into `~/.claude/CLAUDE.md` |
 | `index` | Rebuild `MEMORY.md` from the frontmatter actually on disk |
 | `unlink -Project <slug>` | Remove one junction and stop auto-linking it |
 

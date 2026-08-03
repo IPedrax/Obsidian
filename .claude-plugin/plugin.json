@@ -1,6 +1,6 @@
 {
   "name": "obsidian-memory",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Upgrade Claude's persistent memory into an Obsidian vault it creates and manages, and you can open. Zero-config setup, browsable and queryable, shared across every chat and project instead of siloed per-project. Windows only.",
   "author": {
     "name": "IPedrax",

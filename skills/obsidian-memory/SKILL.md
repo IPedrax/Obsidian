@@ -34,9 +34,15 @@ One command. No arguments, no vault to pick, nothing to create by hand.
 & "$S\memory-vault.ps1" setup
 ```
 
-It creates the vault, registers it in Obsidian's vault switcher, copies every existing per-project memory into the pool, junctions the projects, and installs a SessionStart hook so new projects join automatically. Then the user opens `~/.claude/memory-vault` in Obsidian — after restarting Obsidian, it is in the vault list.
+It creates the vault, registers it in Obsidian's vault switcher, copies every existing per-project memory into the pool, junctions the projects, installs a SessionStart hook so new projects join automatically, and writes the memory rules into `~/.claude/CLAUDE.md`. Then the user opens `~/.claude/memory-vault` in Obsidian — after restarting Obsidian, it is in the vault list.
 
-`-NoLink` sets up without junctioning. `-NoHook` skips the hook. `-Vault <path>` uses an existing vault instead of creating one.
+`-NoLink` sets up without junctioning. `-NoHook` skips the hook. `-NoRules` skips the CLAUDE.md block. `-Vault <path>` uses an existing vault instead of creating one.
+
+## Why the rules go in CLAUDE.md
+
+A skill only loads when it triggers. If Claude saves a memory in a session where this skill never fired, the file has no `project:` and lands as `unscoped` — the shared pool then cannot tell what applies where. `CLAUDE.md` is loaded every session, so anything that must **always** hold belongs there, not only here.
+
+`rules` writes that block between `<!-- obsidian-memory:begin -->` / `<!-- obsidian-memory:end -->` markers. It is idempotent — re-running replaces the block rather than duplicating it — and preserves everything else in the file. `rules -Remove` strips it and leaves the rest byte-for-byte.
 
 ## Auto-management
 

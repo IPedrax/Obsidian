@@ -29,7 +29,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('setup','status','init','adopt','link','autolink','hook','index','unlink')]
+  [ValidateSet('setup','status','init','adopt','link','autolink','hook','rules','index','unlink')]
   [string]$Command = 'status',
 
   [string]$Vault,
@@ -38,6 +38,7 @@ param(
   [switch]$DryRun,
   [switch]$NoLink,
   [switch]$NoHook,
+  [switch]$NoRules,
   [switch]$Remove,
   [switch]$Quiet
 )
@@ -339,6 +340,11 @@ function Invoke-Setup {
     Invoke-Hook
   } else { Say "`n== skipped hook (-NoHook)" }
 
+  if (-not $NoRules) {
+    Say "`n== writing memory rules to CLAUDE.md"
+    Invoke-Rules
+  } else { Say "`n== skipped CLAUDE.md rules (-NoRules)" }
+
   $v = Get-VaultPath
   Say "`nDone. Open this vault in Obsidian:"
   Say "  $v"
@@ -529,6 +535,71 @@ if ($s) { & $s.FullName autolink -Quiet }
   Say "  new projects will join the pool automatically at session start"
 }
 
+# ---------------------------------------------------------------- rules
+
+# A skill only loads when it triggers, so its write rules are not guaranteed to
+# be in context when Claude saves a memory. CLAUDE.md is loaded every session.
+# Anything that must ALWAYS hold -- the `project:` field above all -- belongs
+# here, not only in SKILL.md.
+function Invoke-Rules {
+  $claudeMd = Join-Path $ClaudeRoot 'CLAUDE.md'
+  $begin = '<!-- obsidian-memory:begin -->'
+  $end   = '<!-- obsidian-memory:end -->'
+
+  if (Test-Path $claudeMd) { $raw = [System.IO.File]::ReadAllText($claudeMd) } else { $raw = '' }
+  # Strip any previous block so this is idempotent and never duplicates.
+  $pattern = [regex]::Escape($begin) + '(?s).*?' + [regex]::Escape($end)
+  $raw = ([regex]::Replace($raw, $pattern, '')).TrimEnd()
+
+  if ($Remove) {
+    Write-Utf8 $claudeMd ($raw + "`n")
+    Say "  memory rules removed from $claudeMd"
+    return
+  }
+
+  $pool = '~/.claude/memory-vault/Memory/'
+  try { $pool = Get-Pool } catch { }
+
+  $block = @"
+$begin
+# Memory: the Obsidian vault is the live store
+
+The memory directory is a junction to ``$pool``. Writing a memory the normal way
+already lands in the vault $Dash do not copy, export or sync anything, and never
+write memory files anywhere else.
+
+Because the pool is **shared across every project**, two rules are not optional:
+
+- **Always include ``project:`` in the frontmatter.** ``global`` for facts that apply
+  everywhere (who the user is, standing preferences, how they want you to work);
+  otherwise the project name, matching the ``## <Name>`` headings in ``MEMORY.md``.
+  A memory written without it lands as ``unscoped`` and stops being trustworthy.
+- **Read ``project:`` before acting on a recalled memory.** Memories from other
+  projects will surface in the index. If ``project:`` is neither ``global`` nor the
+  project you are in, it is background context, not an instruction.
+
+Keep ``type:`` flat (``user`` | ``feedback`` | ``project`` | ``reference``), never nested
+under ``metadata:`` $Dash Obsidian Bases can only filter flat properties.
+
+``````markdown
+---
+name: <short-kebab-case-slug>
+description: <one line $Dash this is what shows in the index>
+type: feedback
+project: global
+---
+``````
+
+After editing memory files by hand, rebuild the index so it cannot drift from
+what is on disk: ``obsidian-memory`` skill $Dash> ``memory-vault.ps1 index``.
+$end
+"@
+
+  if ($raw -eq '') { $out = $block } else { $out = $raw + "`n`n" + $block }
+  Write-Utf8 $claudeMd ($out + "`n")
+  Say "  memory rules written to $claudeMd"
+}
+
 # ------------------------------------------------------------- index
 
 function Invoke-Index {
@@ -584,6 +655,10 @@ function Invoke-Status {
     $hookOn = ((Get-Content $SettingsPath -Raw) -like '*obsidian-memory*')
   }
   Write-Host ("Auto-link hook: " + $(if ($hookOn) { "on" } else { "off" }))
+  $rulesOn = $false
+  $cmd = Join-Path $ClaudeRoot 'CLAUDE.md'
+  if (Test-Path $cmd) { $rulesOn = ((Get-Content $cmd -Raw) -like '*obsidian-memory:begin*') }
+  Write-Host ("CLAUDE.md rules: " + $(if ($rulesOn) { "on" } else { "off" }))
   if (-not $ok) { return }
   Write-Host ""
 
@@ -609,6 +684,7 @@ switch ($Command) {
   'link'     { Invoke-Link }
   'autolink' { Invoke-AutoLink }
   'hook'     { Invoke-Hook }
+  'rules'    { Invoke-Rules }
   'index'    { Invoke-Index }
   'unlink'   { Invoke-Unlink }
   default    { Invoke-Status }

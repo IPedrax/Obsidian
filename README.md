@@ -128,3 +128,6 @@ The hook points at a stable launcher in `~/.claude/obsidian-memory/`, not the ve
 ## License
 
 MIT
+---
+
+Built by [Pedro Medeiros](https://ipedrax.com.br). I build production LLM applications for companies too: multi-provider backends, the infrastructure under them, and the billing on top. Available for contract work, remote from Brazil on US hours. [pedro.medeiros@ipedrax.com.br](mailto:pedro.medeiros@ipedrax.com.br)
